@@ -2,6 +2,7 @@ package actions
 
 import (
 	"net/url"
+	"strings"
 
 	"todo/models"
 
@@ -56,6 +57,33 @@ func (as *ActionSuite) Test_TasksCreate_OnlySpaces_Invalid() {
 	count, err := as.DB.Count(&models.Task{})
 	as.NoError(err)
 	as.Equal(0, count)
+}
+
+func (as *ActionSuite) Test_TasksIndex_EscapesTitle() {
+	task := &models.Task{Title: `<script>alert("xss")</script>`}
+	verrs, err := as.DB.ValidateAndCreate(task)
+	as.NoError(err)
+	as.False(verrs.HasAny())
+
+	res := as.HTML("/").Get()
+	as.Equal(200, res.Code)
+
+	body := res.Body.String()
+	as.NotContains(body, `<script>alert("xss")</script>`)
+	as.Contains(body, "&lt;script&gt;")
+}
+
+func (as *ActionSuite) Test_TasksCreate_Invalid_EscapesTitleInInput() {
+	// Un título demasiado largo vuelve a mostrarse en el atributo value del
+	// formulario: no debe poder cerrar el atributo e inyectar HTML.
+	title := `"><script>alert("xss")</script>` + strings.Repeat("a", models.TitleMaxLength)
+
+	res := as.HTML("/tasks").Post(&models.Task{Title: title})
+	as.Equal(422, res.Code)
+
+	body := res.Body.String()
+	as.NotContains(body, `"><script>`)
+	as.Contains(body, "&#34;&gt;&lt;script&gt;")
 }
 
 func (as *ActionSuite) Test_TasksToggle_CompletesAndReopens() {
